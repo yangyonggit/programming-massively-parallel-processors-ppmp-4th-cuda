@@ -1,0 +1,59 @@
+# Build directories
+/build/
+/cmake-build-debug/
+/cmake-build-release/
+/cmake-build-relwithdebinfo/
+/cmake-build-minsizerel/
+*.o
+*.a
+*.lib
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!cmake/*.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.VS/
+*.vcxproj.user
+
+# Generated files
+stb/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Dependencies
+third_party/
+external/
+*.log
