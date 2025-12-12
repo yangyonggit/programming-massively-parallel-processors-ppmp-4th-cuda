@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(PMPP_CUDA LANGUAGES CUDA CXX)
 
+# Set CUDA runtime library to dynamic (required for iostream support)
+set(CMAKE_CUDA_RUNTIME_LIBRARY DYNAMIC)
+
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,13 +15,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# Disable unnecessary default libraries for Windows
-if(MSVC)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:msvcprt")
-endif()
+# Keep MSVC default libs (required for iostream/std::cout)
 
 # Find CUDA
 find_package(CUDA REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 # Create a module to download external dependencies
 include(cmake/DownloadSTB.cmake)
@@ -40,6 +41,27 @@ set_target_properties(vectorAdd PROPERTIES
 
 # Explicitly link only required CUDA libraries
 target_link_libraries(vectorAdd PRIVATE cuda cudart)
+
+# Chapter 03: RGB to Grayscale
+add_executable(rgbToGray src/chapter03/rgb_to_gray.cu)
+set_target_properties(rgbToGray PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter03
+)
+
+# Link CUDA libraries
+target_link_libraries(rgbToGray PRIVATE CUDA::cudart)
+
+# Copy assets directory to output location
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    add_custom_command(TARGET rgbToGray POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:rgbToGray>/../assets"
+        COMMENT "Copying assets directory"
+    )
+endif()
 
 # Print CUDA info
 message(STATUS "CUDA Toolkit: ${CUDA_TOOLKIT_ROOT_DIR}")
