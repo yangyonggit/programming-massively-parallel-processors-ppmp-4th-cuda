@@ -6,6 +6,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
+#include "cdiv.h"
 
 __global__ void rgbToGrayscaleKernel(const unsigned char* Pin, unsigned char* Pout, int width, int height) {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -25,9 +26,6 @@ __global__ void rgbToGrayscaleKernel(const unsigned char* Pin, unsigned char* Po
     }
 }
 
-inline unsigned int cdiv(unsigned int a, unsigned int b) {
-    return (a + b - 1) / b;
-}
 
 void launchRgbToGray(const unsigned char* h_input, unsigned char* h_output, int width, int height) {
     const size_t numPixels = static_cast<size_t>(width) * static_cast<size_t>(height);

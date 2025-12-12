@@ -6,6 +6,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"
 #include "stb_image_write.h"
+#include "cdiv.h"
 
 // Radius of the blur window; total window size is (2 * BLUR_SIZE + 1)^2
 #define BLUR_SIZE 9
@@ -44,9 +45,6 @@ __global__ void blurKernel(const unsigned char* in, unsigned char* out, int w, i
     }
 }
 
-inline unsigned int cdiv(unsigned int a, unsigned int b) {
-    return (a + b - 1) / b;
-}
 
 void launchBlur(const unsigned char* h_input, unsigned char* h_output, int width, int height) {
     const size_t numPixels = static_cast<size_t>(width) * static_cast<size_t>(height);

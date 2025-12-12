@@ -63,6 +63,15 @@ set_target_properties(blurFilter PROPERTIES
 
 target_link_libraries(blurFilter PRIVATE CUDA::cudart)
 
+# Chapter 03: Matrix Multiplication (validate via cuBLAS)
+add_executable(matrixMul src/chapter03/matrixMul.cu)
+set_target_properties(matrixMul PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter03
+)
+target_link_libraries(matrixMul PRIVATE CUDA::cudart CUDA::cublas)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -75,6 +84,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:blurFilter>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET matrixMul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:matrixMul>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
