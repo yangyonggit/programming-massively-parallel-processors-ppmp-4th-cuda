@@ -81,6 +81,15 @@ set_target_properties(exercise_3_1 PROPERTIES
 )
 target_link_libraries(exercise_3_1 PRIVATE CUDA::cudart CUDA::cublas)
 
+# Chapter 03: Exercise 3.2 (matrix-vector product)
+add_executable(exercise_3_2 src/chapter03/exercise_3_2.cu)
+set_target_properties(exercise_3_2 PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter03
+)
+target_link_libraries(exercise_3_2 PRIVATE CUDA::cudart CUDA::cublas)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -105,6 +114,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:exercise_3_1>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET exercise_3_2 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:exercise_3_2>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
