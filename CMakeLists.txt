@@ -53,12 +53,28 @@ set_target_properties(rgbToGray PROPERTIES
 # Link CUDA libraries
 target_link_libraries(rgbToGray PRIVATE CUDA::cudart)
 
+# Chapter 03: Blur Filter
+add_executable(blurFilter src/chapter03/blur.cu)
+set_target_properties(blurFilter PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter03
+)
+
+target_link_libraries(blurFilter PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:rgbToGray>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET blurFilter POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:blurFilter>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
