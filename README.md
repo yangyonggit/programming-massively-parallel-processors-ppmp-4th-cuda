@@ -24,6 +24,20 @@ cmake -B build -S .
 cmake --build build --config Release
 ```
 
+## Build & run on WSL (Ubuntu)
+- Ensure NVIDIA drivers and CUDA are installed in WSL (CUDA Toolkit 12.x recommended) and `/usr/local/cuda/bin` is on `PATH`.
+- Use GCC/Clang toolchain; CMake will detect `nvcc` automatically.
+
+```bash
+# inside WSL, from repo root
+cmake -B build -S .
+cmake --build build --config Release
+
+# run examples
+./build/bin/Release/chapter04/query_device    # list devices
+./build/bin/Release/chapter03/exercise_3_2 1024
+```
+
 ## Targets & outputs
 - Chapter 02
   - `vectorAdd` → `build/bin/Release/chapter02/vectorAdd.exe`
