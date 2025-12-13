@@ -90,6 +90,15 @@ set_target_properties(exercise_3_2 PROPERTIES
 )
 target_link_libraries(exercise_3_2 PRIVATE CUDA::cudart CUDA::cublas)
 
+# Chapter 04: Query Device Info
+add_executable(query_device src/chapter04/query_device.cu)
+set_target_properties(query_device PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter04
+)
+target_link_libraries(query_device PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -120,6 +129,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:exercise_3_2>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET query_device POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:query_device>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
