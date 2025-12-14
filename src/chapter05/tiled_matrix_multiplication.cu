@@ -88,6 +88,36 @@ __global__ void matrixMulKernelBoundary(float* M, float* N, float* P, int Width)
         P[Row*Width + Col] = Pvalue;
 }
 
+// Tiled kernel with dynamic shared memory (assumes Width is multiple of TILE_WIDTH)
+__global__ void matrixMulKernelDynamic(float* M, float* N, float* P, int Width,
+                                       unsigned Mds_sz, unsigned Nds_sz) {
+    extern __shared__ float Mds_Nds[];
+    float *Mds = (float *) Mds_Nds;
+    float *Nds = (float *) Mds_Nds + Mds_sz;
+
+    int bx = blockIdx.x; int by = blockIdx.y;
+    int tx = threadIdx.x; int ty = threadIdx.y;
+
+    int Row = by * TILE_WIDTH + ty;
+    int Col = bx * TILE_WIDTH + tx;
+
+    float Pvalue = 0;
+    for (int ph = 0; ph < Width/TILE_WIDTH; ++ph) {
+        
+        // Collaborative loading of M and N tiles into shared memory
+        Mds[ty*TILE_WIDTH + tx] = M[Row*Width + ph*TILE_WIDTH + tx];
+        Nds[ty*TILE_WIDTH + tx] = N[(ph*TILE_WIDTH + ty)*Width + Col];
+        __syncthreads();
+
+        for (int k = 0; k < TILE_WIDTH; ++k) {
+            Pvalue += Mds[ty*TILE_WIDTH + k] * Nds[k*TILE_WIDTH + tx];
+        }
+        __syncthreads();
+    }
+
+    P[Row*Width + Col] = Pvalue;
+}
+
 void launchTiledBasic(const float* h_M, const float* h_N, float* h_P, int Width, float* outTime, int numRuns = 1000) {
     const size_t bytes = static_cast<size_t>(Width) * static_cast<size_t>(Width) * sizeof(float);
 
@@ -163,6 +193,59 @@ void launchTiledBoundary(const float* h_M, const float* h_N, float* h_P, int Wid
     for (int run = 0; run < numRuns; ++run) {
         cudaEventRecord(start);
         matrixMulKernelBoundary<<<grid, block>>>(d_M, d_N, d_P, Width);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+        
+        float ms = 0.0f;
+        cudaEventElapsedTime(&ms, start, stop);
+        totalMs += ms;
+    }
+    
+    checkCuda(cudaGetLastError(), "Kernel launch");
+    
+    if (outTime) *outTime = totalMs / numRuns;
+
+    checkCuda(cudaMemcpy(h_P, d_P, bytes, cudaMemcpyDeviceToHost), "memcpy P D2H");
+
+    cudaFree(d_M);
+    cudaFree(d_N);
+    cudaFree(d_P);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}
+
+void launchTiledDynamic(const float* h_M, const float* h_N, float* h_P, int Width, float* outTime, int numRuns = 1000) {
+    const size_t bytes = static_cast<size_t>(Width) * static_cast<size_t>(Width) * sizeof(float);
+
+    float *d_M = nullptr, *d_N = nullptr, *d_P = nullptr;
+    checkCuda(cudaMalloc(&d_M, bytes), "cudaMalloc d_M");
+    checkCuda(cudaMalloc(&d_N, bytes), "cudaMalloc d_N");
+    checkCuda(cudaMalloc(&d_P, bytes), "cudaMalloc d_P");
+
+    checkCuda(cudaMemcpy(d_M, h_M, bytes, cudaMemcpyHostToDevice), "memcpy M H2D");
+    checkCuda(cudaMemcpy(d_N, h_N, bytes, cudaMemcpyHostToDevice), "memcpy N H2D");
+
+    dim3 block(TILE_WIDTH, TILE_WIDTH);
+    dim3 grid(Width/TILE_WIDTH, Width/TILE_WIDTH);
+
+    // Calculate dynamic shared memory size
+    const unsigned Mds_sz = TILE_WIDTH * TILE_WIDTH;
+    const unsigned Nds_sz = TILE_WIDTH * TILE_WIDTH;
+    const size_t sharedMemSize = (Mds_sz + Nds_sz) * sizeof(float);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    
+    // Warm-up run
+    matrixMulKernelDynamic<<<grid, block, sharedMemSize>>>(d_M, d_N, d_P, Width, Mds_sz, Nds_sz);
+    cudaDeviceSynchronize();
+    
+    // Timed runs
+    float totalMs = 0.0f;
+    for (int run = 0; run < numRuns; ++run) {
+        cudaEventRecord(start);
+        matrixMulKernelDynamic<<<grid, block, sharedMemSize>>>(d_M, d_N, d_P, Width, Mds_sz, Nds_sz);
         cudaEventRecord(stop);
         cudaEventSynchronize(stop);
         
@@ -293,7 +376,7 @@ int main(int argc, char** argv) {
 
     const size_t elems = static_cast<size_t>(Width) * static_cast<size_t>(Width);
 
-    std::vector<float> M(elems), N(elems), P_basic(elems), P_boundary(elems);
+    std::vector<float> M(elems), N(elems), P_basic(elems), P_boundary(elems), P_dynamic(elems);
     std::mt19937 rng(42);
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
     
@@ -320,10 +403,26 @@ int main(int argc, char** argv) {
         std::cout << "Skipping basic tiled kernel (Width not multiple of TILE_WIDTH)" << std::endl << std::endl;
     }
 
+    // Run dynamic shared memory tiled kernel (only works if Width is multiple of TILE_WIDTH)
+    float timeDynamic = 0.0f;
+    if (Width % TILE_WIDTH == 0) {
+        launchTiledDynamic(M.data(), N.data(), P_dynamic.data(), Width, &timeDynamic, numRuns);
+        std::cout << "Dynamic shared memory kernel time: " << timeDynamic << " ms (avg of " << numRuns << " runs)" << std::endl;
+
+        float maxDiffDynamic = 0.0f;
+        bool okDynamic = validateWithCublas(handle, M.data(), N.data(), P_dynamic.data(), Width, &maxDiffDynamic, nullptr);
+        std::cout << "Dynamic shared memory validation: " << (okDynamic ? "OK" : "FAIL") 
+                  << ", maxAbsDiff=" << maxDiffDynamic << std::endl << std::endl;
+    } else {
+        std::cout << "Skipping dynamic shared memory kernel (Width not multiple of TILE_WIDTH)" << std::endl << std::endl;
+    }
+
     // Run boundary-checked tiled kernel (works for any Width)
+    // Use fewer runs because boundary checking is very slow
+    const int boundaryRuns = 10;
     float timeBoundary = 0.0f;
-    launchTiledBoundary(M.data(), N.data(), P_boundary.data(), Width, &timeBoundary, numRuns);
-    std::cout << "Boundary-checked tiled kernel time: " << timeBoundary << " ms (avg of " << numRuns << " runs)" << std::endl;
+    launchTiledBoundary(M.data(), N.data(), P_boundary.data(), Width, &timeBoundary, boundaryRuns);
+    std::cout << "Boundary-checked tiled kernel time: " << timeBoundary << " ms (avg of " << boundaryRuns << " runs)" << std::endl;
 
     float maxDiffBoundary = 0.0f;
     bool okBoundary = validateWithCublas(handle, M.data(), N.data(), P_boundary.data(), Width, &maxDiffBoundary, nullptr);
@@ -338,12 +437,14 @@ int main(int argc, char** argv) {
     // Summary
     std::cout << "========== Performance Summary ==========" << std::endl;
     if (Width % TILE_WIDTH == 0) {
-        std::cout << "Basic tiled:       " << timeBasic << " ms (cuBLAS is " 
+        std::cout << "Basic tiled (static):      " << timeBasic << " ms (cuBLAS is " 
                   << (timeBasic/timeCublas) << "x faster)" << std::endl;
+        std::cout << "Dynamic shared memory:     " << timeDynamic << " ms (cuBLAS is " 
+                  << (timeDynamic/timeCublas) << "x faster)" << std::endl;
     }
-    std::cout << "Boundary-checked:  " << timeBoundary << " ms (cuBLAS is " 
+    std::cout << "Boundary-checked:          " << timeBoundary << " ms (cuBLAS is " 
               << (timeBoundary/timeCublas) << "x faster)" << std::endl;
-    std::cout << "cuBLAS:            " << timeCublas << " ms (baseline)" << std::endl;
+    std::cout << "cuBLAS:                    " << timeCublas << " ms (baseline)" << std::endl;
 
     cublasDestroy(handle);
     return (okBoundary) ? 0 : 1;
