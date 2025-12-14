@@ -99,6 +99,15 @@ set_target_properties(query_device PROPERTIES
 )
 target_link_libraries(query_device PRIVATE CUDA::cudart)
 
+# Chapter 05: Tiled Matrix Multiplication
+add_executable(tiled_matrix_multiplication src/chapter05/tiled_matrix_multiplication.cu)
+set_target_properties(tiled_matrix_multiplication PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter05
+)
+target_link_libraries(tiled_matrix_multiplication PRIVATE CUDA::cudart CUDA::cublas)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -135,6 +144,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:query_device>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET tiled_matrix_multiplication POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:tiled_matrix_multiplication>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
