@@ -108,6 +108,15 @@ set_target_properties(tiled_matrix_multiplication PROPERTIES
 )
 target_link_libraries(tiled_matrix_multiplication PRIVATE CUDA::cudart CUDA::cublas)
 
+# Chapter 06: Thread Coarsening Matrix Multiplication
+add_executable(thread_coarsening_matrix_mul src/chapter06/thread_coarsening_matrix_mul.cu)
+set_target_properties(thread_coarsening_matrix_mul PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter06
+)
+target_link_libraries(thread_coarsening_matrix_mul PRIVATE CUDA::cudart CUDA::cublas)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -150,6 +159,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:tiled_matrix_multiplication>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET thread_coarsening_matrix_mul POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:thread_coarsening_matrix_mul>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
