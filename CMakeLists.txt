@@ -117,6 +117,15 @@ set_target_properties(thread_coarsening_matrix_mul PROPERTIES
 )
 target_link_libraries(thread_coarsening_matrix_mul PRIVATE CUDA::cudart CUDA::cublas)
 
+# Chapter 06: Exercise 6.1 (Corner Turning)
+add_executable(exercise_6_1 src/chapter06/exercise_6_1.cu)
+set_target_properties(exercise_6_1 PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter06
+)
+target_link_libraries(exercise_6_1 PRIVATE CUDA::cudart CUDA::cublas)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
@@ -165,6 +174,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:thread_coarsening_matrix_mul>/../assets"
+        COMMENT "Copying assets directory"
+    )
+    add_custom_command(TARGET exercise_6_1 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:exercise_6_1>/../assets"
         COMMENT "Copying assets directory"
     )
 endif()
