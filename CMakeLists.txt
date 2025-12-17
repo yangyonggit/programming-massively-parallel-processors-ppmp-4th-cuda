@@ -153,6 +153,15 @@ set_target_properties(exercise_7_9 PROPERTIES
 )
 target_link_libraries(exercise_7_9 PRIVATE CUDA::cudart)
 
+# Chapter 07: Exercise 7.10 (3D Tiled Convolution - constant memory)
+add_executable(exercise_7_10 src/chapter07/exercise_7_10.cu)
+set_target_properties(exercise_7_10 PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter07
+)
+target_link_libraries(exercise_7_10 PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
