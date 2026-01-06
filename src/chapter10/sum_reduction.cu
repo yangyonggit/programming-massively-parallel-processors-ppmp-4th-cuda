@@ -8,6 +8,7 @@
 
 #define LONG_ARRAY_SIZE 1024 * 128
 #define LONG_BLOCK_DIM 1024
+#define COARSE_FACTOR 4
 
 // Simple Sum Reduction Kernel
 __global__ void SimpleSumReductionKernel(float* input, float* output) {
@@ -73,6 +74,29 @@ __global__ void SegmentedSumReductionKernel(float* input, float* output, int seg
     if (t == 0) {
         atomicAdd(output, input_s[0]);
     }    
+}
+
+// Coarsened Sum Reduction Kernel (processes multiple tiles per thread block)
+__global__ void CoarsenedSumReductionKernel(float* input, float* output) {
+    __shared__ float input_s[BLOCK_DIM];
+    unsigned int segment = COARSE_FACTOR * 2 * blockDim.x * blockIdx.x;
+    unsigned int i = segment + threadIdx.x;
+    unsigned int t = threadIdx.x;
+
+    float sum = input[i];
+    for (unsigned int tile = 1; tile < COARSE_FACTOR * 2; ++tile) {
+        sum += input[i + tile * BLOCK_DIM];
+    }
+    input_s[t] = sum;
+    for (unsigned int stride = blockDim.x / 2; stride >= 1; stride /= 2) {
+        __syncthreads();
+        if (t < stride) {
+            input_s[t] += input_s[t + stride];
+        }
+    }
+    if (t == 0) {
+        atomicAdd(output, input_s[0]);
+    }
 }
 
 // CPU reference implementation for verification
@@ -376,7 +400,65 @@ int main() {
            fabs(cpu_result - h_output));
     
     printf("\n==============================================\n");
-    
+
+    // Test CoarsenedSumReductionKernel
+    printf("\n\n========== TESTING COARSENED KERNEL =========\n");
+    int tiles = COARSE_FACTOR * 2;
+    threads = LONG_BLOCK_DIM;
+    segment = tiles * threads;
+    numBlocks = longSize / segment;
+    printf("Launching %d blocks with %d threads each (tiles=%d)\n", numBlocks, threads, tiles);
+
+    // Coarsened Test 1: All 1s
+    printf("\nTest 1: All elements = 1.0\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = 1.0f;
+    }
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    CoarsenedSumReductionKernel<<<numBlocks, threads>>>(d_longInput, d_longOutput);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    printf("GPU Result (Coarsened): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", fabs(cpu_result - h_output));
+
+    // Coarsened Test 2: Sequential values
+    printf("\nTest 2: Sequential values (0, 1, 2, ...)\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = (float)i;
+    }
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    CoarsenedSumReductionKernel<<<numBlocks, threads>>>(d_longInput, d_longOutput);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    printf("GPU Result (Coarsened): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", fabs(cpu_result - h_output));
+
+    // Coarsened Test 3: Random values
+    printf("\nTest 3: Random values\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = (float)(rand() % 100) / 10.0f;
+    }
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    CoarsenedSumReductionKernel<<<numBlocks, threads>>>(d_longInput, d_longOutput);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    printf("GPU Result (Coarsened): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", fabs(cpu_result - h_output));
+
+    printf("\n==============================================\n");
+
     // Cleanup
     free(h_longInput);
     cudaFree(d_longInput);
