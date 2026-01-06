@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <math.h>
 
+#define ARRAY_SIZE 2048
+#define BLOCK_DIM (ARRAY_SIZE >> 1)
+
 // Simple Sum Reduction Kernel
 __global__ void SimpleSumReductionKernel(float* input, float* output) {
     unsigned int i = 2 * threadIdx.x;
@@ -27,6 +30,27 @@ __global__ void ConvergentSumReductionKernel(float* input, float* output) {
     }
     if (threadIdx.x == 0) {
         *output = input[0];
+    }
+}
+
+__global__ void SharedMemorySumReductionKernel(float* input, float* output) {
+    __shared__ float sdata[BLOCK_DIM];
+    unsigned int tid = threadIdx.x;
+    unsigned int i = tid + BLOCK_DIM;
+    
+    sdata[tid] = input[i] + input[i + 1];
+  
+    
+    for (unsigned int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+         __syncthreads();
+        if (tid < stride) {
+            
+            sdata[tid] += sdata[tid + stride];
+        }       
+    }
+    
+    if (tid == 0) {
+        *output = sdata[0];
     }
 }
 
@@ -187,8 +211,70 @@ int main() {
     
     printf("\n===============================================\n");
     
-    // Compare performance between Simple and Convergent kernels
-    printf("\n\n========== PERFORMANCE COMPARISON ==========\n");
+    // Test SharedMemorySumReductionKernel
+    printf("\n\n========== TESTING SHARED MEMORY KERNEL ==========\n");
+    
+    // Test 1: All 1s
+    printf("\nTest 1: All elements = 1.0\n");
+    for (int i = 0; i < size; i++) {
+        h_input[i] = 1.0f;
+    }
+    
+    cpu_result = cpuSumReduction(h_input, size);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
+    SharedMemorySumReductionKernel<<<1, BLOCK_DIM>>>(d_input, d_output);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_output, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (SharedMemory): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    // Test 2: Sequential values
+    printf("\nTest 2: Sequential values (0, 1, 2, ...)\n");
+    for (int i = 0; i < size; i++) {
+        h_input[i] = (float)i;
+    }
+    
+    cpu_result = cpuSumReduction(h_input, size);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
+    SharedMemorySumReductionKernel<<<1, BLOCK_DIM>>>(d_input, d_output);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_output, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (SharedMemory): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    // Test 3: Random values
+    printf("\nTest 3: Random values\n");
+    for (int i = 0; i < size; i++) {
+        h_input[i] = (float)(rand() % 100) / 10.0f;
+    }
+    
+    cpu_result = cpuSumReduction(h_input, size);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
+    SharedMemorySumReductionKernel<<<1, BLOCK_DIM>>>(d_input, d_output);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_output, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (SharedMemory): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    printf("\n===================================================\n");
+    
+    // Compare performance between all three kernels
+    printf("\n\n========== PERFORMANCE COMPARISON (ALL 3 KERNELS) ==========\n");
     
     // Prepare test data
     for (int i = 0; i < size; i++) {
@@ -212,7 +298,7 @@ int main() {
     
     float simpleTime;
     CUDA_CHECK(cudaEventElapsedTime(&simpleTime, start, stop));
-    printf("SimpleSumReductionKernel:     %.4f ms (avg over %d runs)\n", 
+    printf("SimpleSumReductionKernel:        %.4f ms (avg over %d runs)\n", 
            simpleTime / numIterations, numIterations);
     
     // Timing Convergent kernel
@@ -226,11 +312,28 @@ int main() {
     
     float convergentTime;
     CUDA_CHECK(cudaEventElapsedTime(&convergentTime, start, stop));
-    printf("ConvergentSumReductionKernel: %.4f ms (avg over %d runs)\n", 
+    printf("ConvergentSumReductionKernel:    %.4f ms (avg over %d runs)\n", 
            convergentTime / numIterations, numIterations);
     
-    printf("\nSpeedup: %.2fx\n", simpleTime / convergentTime);
-    printf("============================================\n");
+    // Timing SharedMemory kernel
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, bytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start));
+    for (int i = 0; i < numIterations; i++) {
+        SharedMemorySumReductionKernel<<<1, BLOCK_DIM>>>(d_input, d_output);
+    }
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    
+    float sharedMemoryTime;
+    CUDA_CHECK(cudaEventElapsedTime(&sharedMemoryTime, start, stop));
+    printf("SharedMemorySumReductionKernel:  %.4f ms (avg over %d runs)\n", 
+           sharedMemoryTime / numIterations, numIterations);
+    
+    printf("\nPerformance Comparison:\n");
+    printf("  Convergent vs Simple:     %.2fx\n", simpleTime / convergentTime);
+    printf("  SharedMemory vs Simple:   %.2fx\n", simpleTime / sharedMemoryTime);
+    printf("  SharedMemory vs Convergent: %.2fx\n", convergentTime / sharedMemoryTime);
+    printf("=============================================================\n");
     
     // Cleanup
     CUDA_CHECK(cudaEventDestroy(start));
