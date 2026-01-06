@@ -162,6 +162,15 @@ set_target_properties(exercise_7_10 PROPERTIES
 )
 target_link_libraries(exercise_7_10 PRIVATE CUDA::cudart)
 
+# Chapter 10: Sum Reduction
+add_executable(sum_reduction src/chapter10/sum_reduction.cu)
+set_target_properties(sum_reduction PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter10
+)
+target_link_libraries(sum_reduction PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
