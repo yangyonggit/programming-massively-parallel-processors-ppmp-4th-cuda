@@ -6,6 +6,9 @@
 #define ARRAY_SIZE 2048
 #define BLOCK_DIM (ARRAY_SIZE >> 1)
 
+#define LONG_ARRAY_SIZE 1024 * 128
+#define LONG_BLOCK_DIM 1024
+
 // Simple Sum Reduction Kernel
 __global__ void SimpleSumReductionKernel(float* input, float* output) {
     unsigned int i = 2 * threadIdx.x;
@@ -21,8 +24,8 @@ __global__ void SimpleSumReductionKernel(float* input, float* output) {
 }
 
 __global__ void ConvergentSumReductionKernel(float* input, float* output) {
-    unsigned int i = 2 * threadIdx.x;
-    for (unsigned int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+    unsigned int i = threadIdx.x;
+    for (unsigned int stride = blockDim.x; stride > 0; stride /= 2) {
         if (threadIdx.x < stride) {
             input[i] += input[i + stride];
         }
@@ -54,11 +57,29 @@ __global__ void SharedMemorySumReductionKernel(float* input, float* output) {
     }
 }
 
+__global__ void SegmentedSumReductionKernel(float* input, float* output, int segmentSize) {
+    __shared__ float input_s[LONG_BLOCK_DIM];
+    unsigned int segment = 2 * blockDim.x * blockIdx.x;
+    unsigned int i = segment + threadIdx.x;
+    unsigned int t = threadIdx.x;
+
+    input_s[t] = input[i] + input[i + LONG_BLOCK_DIM];
+    for (unsigned int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+        __syncthreads();
+        if (t < stride) {
+            input_s[t] += input_s[t + stride];
+        }
+    }
+    if (t == 0) {
+        atomicAdd(output, input_s[0]);
+    }    
+}
+
 // CPU reference implementation for verification
-float cpuSumReduction(float* input, int size) {
-    float sum = 0.0f;
+double cpuSumReduction(float* input, int size) {
+    double sum = 0.0f;
     for (int i = 0; i < size; i++) {
-        sum += input[i];
+        sum += (double)input[i];
     }
     return sum;
 }
@@ -274,6 +295,92 @@ int main() {
            fabs(cpu_result - h_output));
     
     printf("\n===================================================\n");
+    
+    // Test SegmentedSumReductionKernel
+    printf("\n\n========== TESTING SEGMENTED KERNEL ==========\n");
+    
+    // For segmented kernel, we need a larger array
+    int longSize = LONG_ARRAY_SIZE;  // 1M elements
+    int longBytes = longSize * sizeof(float);
+    float* h_longInput = (float*)malloc(longBytes);
+    
+    float* d_longInput;
+    float* d_longOutput;
+    CUDA_CHECK(cudaMalloc(&d_longInput, longBytes));
+    CUDA_CHECK(cudaMalloc(&d_longOutput, sizeof(float)));
+    
+    // Test 1: All 1s
+    printf("\nTest 1: All elements = 1.0\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = 1.0f;
+    }
+    
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    
+    int threads = LONG_BLOCK_DIM;
+    int segment = 2 * threads;
+    int numBlocks = (longSize + segment - 1) / segment;
+    printf("Launching %d blocks with %d threads each\n", numBlocks, LONG_BLOCK_DIM);
+    SegmentedSumReductionKernel<<<numBlocks, threads>>>(d_longInput, d_longOutput, longSize);
+    
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (Segmented): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    // Test 2: Sequential values
+    printf("\nTest 2: Sequential values (0, 1, 2, ...)\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = (float)i;
+    }
+    
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    SegmentedSumReductionKernel<<<numBlocks, LONG_BLOCK_DIM>>>(d_longInput, d_longOutput, longSize);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (Segmented): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    // Test 3: Random values
+    printf("\nTest 3: Random values\n");
+    for (int i = 0; i < longSize; i++) {
+        h_longInput[i] = (float)(rand() % 100) / 10.0f;
+    }
+    
+    cpu_result = cpuSumReduction(h_longInput, longSize);
+    printf("CPU Result: %.2f\n", cpu_result);
+    
+    CUDA_CHECK(cudaMemcpy(d_longInput, h_longInput, longBytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(d_longOutput, 0, sizeof(float)));
+    SegmentedSumReductionKernel<<<numBlocks, LONG_BLOCK_DIM>>>(d_longInput, d_longOutput, longSize);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(&h_output, d_longOutput, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    printf("GPU Result (Segmented): %.2f\n", h_output);
+    correct = fabs(cpu_result - h_output) < epsilon;
+    printf("Status: %s (difference: %.6f)\n", correct ? "PASS" : "FAIL", 
+           fabs(cpu_result - h_output));
+    
+    printf("\n==============================================\n");
+    
+    // Cleanup
+    free(h_longInput);
+    cudaFree(d_longInput);
+    cudaFree(d_longOutput);
     
     // Compare performance between all three kernels
     printf("\n\n========== PERFORMANCE COMPARISON (ALL 3 KERNELS) ==========\n");
