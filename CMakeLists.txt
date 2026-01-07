@@ -180,6 +180,15 @@ set_target_properties(excercise_10_3 PROPERTIES
 )
 target_link_libraries(excercise_10_3 PRIVATE CUDA::cudart)
 
+# Chapter 10: Exercise 10.4&5 (Max reduction)
+add_executable(excercise_10_4_5 src/chapter10/excercise_10_4_5.cu)
+set_target_properties(excercise_10_4_5 PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter10
+)
+target_link_libraries(excercise_10_4_5 PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
