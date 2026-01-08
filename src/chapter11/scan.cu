@@ -31,6 +31,35 @@ __global__ void Kogge_Stone_scan_kernel(float *X, float *Y, unsigned int N){
 	}
 }
 
+// exclusive scan
+__global__ void Kogge_Stone_exclusive_scan_kernel_ex_11_6(float *X, float *Y, unsigned int N){
+	__shared__ float XY[SECTION_SIZE];
+	const unsigned int i  = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N) {
+        if (threadIdx.x == 0) XY[0] = 0;
+        else XY[threadIdx.x] = X[i - 1];
+	} else {
+        XY[threadIdx.x] = 0.0f;
+    }
+
+	for (unsigned int stride = 1; stride < blockDim.x; stride <<= 1) {
+        __syncthreads();
+		float temp = 0.0f;
+		if (threadIdx.x >= stride) 
+        {
+            temp = XY[threadIdx.x] + XY[threadIdx.x - stride];
+        }
+		__syncthreads();
+		if (threadIdx.x >= stride)
+		    XY[threadIdx.x] = temp;
+	}
+
+    if (i < N) {
+		Y[i] = XY[threadIdx.x];
+	}
+
+}
+
 __global__ void Brent_Kung_scan_kernel(float *X, float *Y, unsigned int N) {
 	__shared__ float XY[SECTION_SIZE];
 	unsigned int i = 2*blockIdx.x*blockDim.x + threadIdx.x;
@@ -104,6 +133,17 @@ static void cpu_blockwise_inclusive_scan(const float* X, float* Y, unsigned int 
 	}
 }
 
+static void cpu_blockwise_exclusive_scan(const float* X, float* Y, unsigned int N, unsigned int blockSize){
+	for (unsigned int base = 0; base < N; base += blockSize) {
+		float acc = 0.0f;
+		unsigned int end = (base + blockSize < N) ? (base + blockSize) : N;
+		for (unsigned int i = base; i < end; ++i) {			
+			Y[i] = acc;
+            acc += X[i];
+		}
+	}
+}
+
 // Typedef for kernel launcher function
 typedef void(*KernelLauncher)(float* dX, float* dY, unsigned int N, unsigned int gridSize, unsigned int blockSize);
 
@@ -118,6 +158,10 @@ static void launch_brent_kung(float* dX, float* dY, unsigned int N, unsigned int
 
 static void launch_kogge_stone_ex_11_2(float* dX, float* dY, unsigned int N, unsigned int gridSize, unsigned int blockSize) {
 	Kogge_Stone_scan_kernel_ex_11_2<<<gridSize, blockSize>>>(dX, dY, N);
+}
+
+static void launch_kogge_stone_exclusive_11_6(float* dX, float* dY, unsigned int N, unsigned int gridSize, unsigned int blockSize) {
+	Kogge_Stone_exclusive_scan_kernel_ex_11_6<<<gridSize, blockSize>>>(dX, dY, N);
 }
 
 // Generic scan test function
@@ -147,6 +191,43 @@ static bool run_generic_scan_test(const char* kernel_name, const char* title, un
 
 	bool ok = true;
 	for (unsigned int i = 0; i < N; ++i) {
+		if (fabs(hY[i] - hRef[i]) > 1e-4f) { ok = false; break; }
+	}
+
+	printf("%s Test (%s, N=%u) -> %s\n", kernel_name, title, N, ok ? "PASS" : "FAIL");
+    
+	cudaFree(dX); cudaFree(dY);
+	free(hX); free(hY); free(hRef);
+	return ok;
+}
+
+
+static bool run_exclusive_scan_test(const char* kernel_name, const char* title, unsigned int N, 
+                                  unsigned int blockSize, unsigned int elementsPerBlock, KernelLauncher launcher) {
+	const unsigned int gridSize = (N + elementsPerBlock - 1) / elementsPerBlock;
+	size_t bytes = N * sizeof(float);
+	float* hX = (float*)malloc(bytes);
+	float* hY = (float*)malloc(bytes);
+	float* hRef = (float*)malloc(bytes);
+
+	for (int i = 0; i < N; ++i) {
+		hX[i] = 0.1f * ((i % 7) - 3);
+	}
+
+	cpu_blockwise_exclusive_scan(hX, hRef, N, elementsPerBlock);
+
+	float *dX = nullptr, *dY = nullptr;
+	cudaMalloc(&dX, bytes);
+	cudaMalloc(&dY, bytes);
+	cudaMemcpy(dX, hX, bytes, cudaMemcpyHostToDevice);
+
+	launcher(dX, dY, N, gridSize, blockSize);
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(hY, dY, bytes, cudaMemcpyDeviceToHost);
+
+	bool ok = true;
+	for (int i = 0; i < N; ++i) {
 		if (fabs(hY[i] - hRef[i]) > 1e-4f) { ok = false; break; }
 	}
 
@@ -191,6 +272,21 @@ int main(){
 	run_generic_scan_test("Kogge-Stone-ex11.2", "one-more-than-block", SECTION_SIZE + 1, ex112_blockSize, ex112_elementsPerBlock, launch_kogge_stone_ex_11_2);
 	run_generic_scan_test("Kogge-Stone-ex11.2", "multi-block", 1000, ex112_blockSize, ex112_elementsPerBlock, launch_kogge_stone_ex_11_2);
 	run_generic_scan_test("Kogge-Stone-ex11.2", "odd multi-block", 2049, ex112_blockSize, ex112_elementsPerBlock, launch_kogge_stone_ex_11_2);
+
+
+
+
+	// Exclusive scan tests (ex 11.6)
+	printf("\n========== Kogge-Stone ex11.6 Exclusive Scan Tests ==========/n");
+	unsigned int ex116_blockSize = SECTION_SIZE;
+	unsigned int ex116_elementsPerBlock = SECTION_SIZE;
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "tiny", 1, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "small", 7, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "one-less-than-block", SECTION_SIZE - 1, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "exactly-one-block", SECTION_SIZE, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "one-more-than-block", SECTION_SIZE + 1, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "multi-block", 1000, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
+	run_exclusive_scan_test("Kogge-Stone-ex11.6", "odd multi-block", 2049, ex116_blockSize, ex116_elementsPerBlock, launch_kogge_stone_exclusive_11_6);
 	return 0;
 }
 
