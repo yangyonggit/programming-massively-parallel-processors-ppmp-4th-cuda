@@ -198,6 +198,15 @@ set_target_properties(scan PROPERTIES
 )
 target_link_libraries(scan PRIVATE CUDA::cudart)
 
+# Chapter 12: Merge Algorithms (CPU and GPU kernels)
+add_executable(merge src/chapter12/merge.cu)
+set_target_properties(merge PROPERTIES
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_SEPARABLE_COMPILATION ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/chapter12
+)
+target_link_libraries(merge PRIVATE CUDA::cudart)
+
 # Copy assets directory to output location
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_custom_command(TARGET rgbToGray POST_BUILD
